@@ -1,0 +1,20 @@
+# Example: gate a pipeline on an agent's claimed actions.
+# Your agent writes chain.jsonl during its run; this job re-checks every claim
+# against reality (git/files/exit codes) and fails CI if any claim was false.
+name: veridict-gate
+on: [workflow_dispatch]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # commit/push checkers need full history
+
+      # ... your agent runs here and emits chain.jsonl ...
+
+      - uses: NodexisLabs/veridict@v0.1.0
+        with:
+          chain: chain.jsonl
+          repo: .

@@ -1,0 +1,5 @@
+{"actor": "git-driver", "action": "branch", "claim": "created the feature branch", "name": "main"}
+{"actor": "git-driver", "action": "file", "claim": "wrote the package readme", "path": "README.md", "contains": "veridict"}
+{"actor": "git-driver", "action": "commit", "claim": "committed the change", "message": "fix login"}
+{"actor": "git-driver", "action": "tests", "claim": "tests pass", "cmd": "python -c \"exit(0)\""}
+{"actor": "git-driver", "action": "push", "claim": "pushed to origin"}

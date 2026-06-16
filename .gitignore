@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# tooling / experiment artifacts (not part of the package)
+.deepeval/
+.deepeval
+
+# local throwaways: screenshot renderers, generated reports, launch notes
+# (named explicitly so we don't accidentally ignore __init__.py)
+_snap_terminal.py
+_capture_real.ps1
+*.png
+*.html
+LAUNCH_POST.md

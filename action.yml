@@ -1,0 +1,29 @@
+name: veridict
+description: Gate CI on whether an AI agent's claimed actions actually happened (ground-truth, no LLM).
+branding:
+  icon: check-circle
+  color: green
+inputs:
+  chain:
+    description: Path to the agent's claimed-action chain (.jsonl, one step/line, or .json list).
+    required: true
+  repo:
+    description: Repo path for git checkers (defaults to the workspace).
+    required: false
+    default: "."
+  python-version:
+    description: Python to run veridict under.
+    required: false
+    default: "3.x"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install veridict
+      shell: bash
+      run: pip install veridict
+    - name: Verify claimed actions against ground truth
+      shell: bash
+      run: veridict verify "${{ inputs.chain }}" --repo "${{ inputs.repo }}"
