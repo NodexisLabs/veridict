@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.9', '3.12']
+        include:
+          - os: ubuntu-latest
+            python: '3.8'          # honor the requires-python >=3.8 floor
+    env:
+      PYTHONIOENCODING: utf-8       # unicode box-drawing in the report/terminal output
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install (stdlib-only, no deps)
+        run: pip install -e .
+      - name: Test suite (42 assertions vs real git/http/ports)
+        run: python tests/test_veridict.py
+      - name: CLI smoke (demo against a throwaway git repo)
+        run: python -m veridict demo

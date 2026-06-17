@@ -1,5 +1,7 @@
 # veridict
 
+[![CI](https://github.com/NodexisLabs/veridict/actions/workflows/ci.yml/badge.svg)](https://github.com/NodexisLabs/veridict/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/veridict)](https://pypi.org/project/veridict/) [![Python](https://img.shields.io/pypi/pyversions/veridict)](https://pypi.org/project/veridict/) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **Verify an AI agent actually did what it claimed.** A CI gate for autonomous agents: it checks an agent's *claimed* actions against **ground truth** — git history, files, real exit codes, HTTP endpoints, open ports — not the agent's self-report.
 
 Deterministic. No LLM. Stdlib only. Each step gets **ACCEPT / REJECT / ESCALATE**, and the gap (ESCALATE) is honest abstention — it never bluffs.
@@ -26,7 +28,8 @@ The agent claimed 8 successful steps. Three were lies. veridict caught them.
 ## Install
 
 ```bash
-pip install -e .        # from this repo
+pip install veridict        # from PyPI
+# or, from a clone:  pip install -e .
 ```
 
 ## Use it
