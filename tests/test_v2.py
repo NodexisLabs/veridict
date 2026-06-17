@@ -155,10 +155,26 @@ def test_mcp():
     expect("tools/list exposes verify", lst["result"]["tools"][0]["name"], "verify")
     call = handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                    "params": {"name": "verify",
-                              "arguments": {"chain": [{"action": "file", "path": "/no/such/zzz", "claim": "x"}]}}})
+                              "arguments": {"chain": [{"action": "file", "path": "definitely_missing_zzz.txt", "claim": "x"}]}}})
     payload = json.loads(call["result"]["content"][0]["text"])
     expect("tools/call returns a REJECT verdict", payload["overall"], REJECT)
     expect("tools/call flags isError on non-accept", call["result"]["isError"], True)
+
+
+def test_mcp_sandbox():
+    print("\n[mcp: sandbox blocks SSRF / path-escape / repo override]")
+    from veridict.mcp import _verify_chain
+    def vmcp(step):
+        res, _ = _verify_chain([step], None)
+        return res[0]["verdict"], res[0]["evidence"]
+    vd, ev = vmcp({"action": "http", "url": "http://169.254.169.254/", "claim": "x"})
+    expect("http over MCP -> ESCALATE (SSRF)", (vd, "SSRF" in ev), (ESCALATE, True))
+    vd, ev = vmcp({"action": "file", "path": "/etc/passwd", "contains": "root", "claim": "x"})
+    expect("absolute path -> ESCALATE (no arbitrary read)", (vd, "escapes" in ev), (ESCALATE, True))
+    vd, ev = vmcp({"action": "file", "path": "../../secrets.txt", "claim": "x"})
+    expect("traversal path -> ESCALATE", vd, ESCALATE)
+    vd, ev = vmcp({"action": "port", "port": 22, "host": "10.0.0.1", "claim": "x"})
+    expect("port scan over MCP -> ESCALATE (SSRF)", vd, ESCALATE)
 
 
 def test_mcp_no_rce():
@@ -200,7 +216,7 @@ def test_extract_skips_failed():
 def main():
     for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract,
               test_output, test_cert, test_coverage, test_mcp,
-              test_mcp_no_rce, test_cert_require_signed, test_extract_skips_failed):
+              test_mcp_no_rce, test_mcp_sandbox, test_cert_require_signed, test_extract_skips_failed):
         try:
             t()
         except Exception as e:
