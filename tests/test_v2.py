@@ -161,9 +161,46 @@ def test_mcp():
     expect("tools/call flags isError on non-accept", call["result"]["isError"], True)
 
 
+def test_mcp_no_rce():
+    print("\n[mcp: executable steps are NOT run by default (no RCE)]")
+    from veridict.mcp import handle
+    d = tempfile.mkdtemp(prefix="rce_t_")
+    sentinel = os.path.join(d, "PWNED")
+    handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "verify", "arguments": {"chain": [
+                {"action": "cmd", "claim": "x", "args": [sys.executable, "-c", f"open(r'{sentinel}','w').write('x')"]}]}}})
+    expect("attacker command did NOT execute", os.path.exists(sentinel), False)
+    call = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                   "params": {"name": "verify", "arguments": {"chain": [
+                       {"action": "cmd", "claim": "x", "args": ["echo", "hi"]}]}}})
+    payload = json.loads(call["result"]["content"][0]["text"])
+    expect("cmd step over MCP -> ESCALATE (disabled)", payload["steps"][0]["verdict"], ESCALATE)
+
+
+def test_cert_require_signed():
+    print("\n[cert: require_signed rejects unsigned; unsigned is integrity-only]")
+    res = _sample_results()
+    unsigned = certify(res, REJECT)
+    expect("unsigned + require_signed -> rejected", verify_certificate(unsigned, require_signed=True)[0], False)
+    expect("unsigned default -> ok but labeled integrity-only",
+           "INTEGRITY ONLY" in verify_certificate(unsigned)[1], True)
+    signed = certify(res, REJECT, key="k")
+    expect("signed + require_signed + key -> ok", verify_certificate(signed, key="k", require_signed=True)[0], True)
+
+
+def test_extract_skips_failed():
+    print("\n[extract: a failed tool call is not turned into a success claim]")
+    calls = [{"name": "write_file", "arguments": {"path": "a.txt"}, "result": {"status": "ERROR"}},
+             {"name": "write_file", "arguments": {"path": "b.txt"}}]
+    chain, skipped = extract_report(calls)
+    expect("only the succeeded call becomes a claim", [s.get("path") for s in chain], ["b.txt"])
+    expect("the failed call is reported skipped", any("reported failed" in s for s in skipped), True)
+
+
 def main():
     for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract,
-              test_output, test_cert, test_coverage, test_mcp):
+              test_output, test_cert, test_coverage, test_mcp,
+              test_mcp_no_rce, test_cert_require_signed, test_extract_skips_failed):
         try:
             t()
         except Exception as e:

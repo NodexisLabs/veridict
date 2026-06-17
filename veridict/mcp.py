@@ -11,10 +11,31 @@ tools/call loop.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
-from .core import confirm_chain, ACCEPT
+from .core import confirm_step, ACCEPT, REJECT, ESCALATE
 from .output import to_json
+
+# `cmd`/`tests` re-run a command. Exposing that over MCP would let a client run arbitrary
+# code on this host (RCE). Disabled by default; opt in only in a trusted setup.
+_EXEC_ACTIONS = {"cmd", "tests"}
+_ALLOW_EXEC = os.environ.get("VERIDICT_MCP_ALLOW_EXEC") == "1"
+
+
+def _verify_chain(chain, repo):
+    """confirm the chain, but refuse to RUN executable steps unless explicitly allowed."""
+    results = []
+    for s in chain:
+        if not _ALLOW_EXEC and isinstance(s, dict) and s.get("action") in _EXEC_ACTIONS:
+            results.append({**s, "verdict": ESCALATE,
+                            "evidence": "executable check (cmd/tests) disabled over MCP; "
+                                        "set VERIDICT_MCP_ALLOW_EXEC=1 on a trusted host to enable"})
+        else:
+            results.append(confirm_step(s, repo))
+    overall = (ACCEPT if all(r["verdict"] == ACCEPT for r in results)
+               else REJECT if any(r["verdict"] == REJECT for r in results) else ESCALATE)
+    return results, overall
 
 PROTOCOL = "2024-11-05"
 
@@ -64,7 +85,7 @@ def handle(msg):
         args = params.get("arguments") or {}
         chain = args.get("chain") or []
         try:
-            results, overall = confirm_chain(chain, repo=args.get("repo"), verbose=False)
+            results, overall = _verify_chain(chain, args.get("repo"))
         except Exception as e:
             return _result(mid, {"content": [{"type": "text", "text": f"verify error: {e}"}],
                                  "isError": True})

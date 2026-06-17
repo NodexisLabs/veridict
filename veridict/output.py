@@ -27,11 +27,12 @@ def to_json(results, overall, indent=2):
     return json.dumps(doc, indent=indent)
 
 
-def _location(step):
-    for k in ("path", "url", "cmd", "args"):
-        if step.get(k):
-            v = step[k] if isinstance(step[k], str) else " ".join(step[k])
-            return v
+def _file_uri(step):
+    """A SARIF artifactLocation only makes sense for a FILE path. A cmd/url is not an
+    artifact, so we don't fake a location for it. Backslashes -> forward slashes (URI)."""
+    p = step.get("path")
+    if p and isinstance(p, str):
+        return p.replace("\\", "/")
     return None
 
 
@@ -47,9 +48,9 @@ def to_sarif(results, indent=2):
     for r in results:
         res = {"ruleId": r.get("action", "claim"), "level": _LEVEL.get(r["verdict"], "note"),
                "message": {"text": f'{r["verdict"]}: “{r.get("claim","")}” — {r.get("evidence","")}'}}
-        loc = _location(r)
-        if loc and not loc.startswith(("http://", "https://")):
-            res["locations"] = [{"physicalLocation": {"artifactLocation": {"uri": loc}}}]
+        uri = _file_uri(r)
+        if uri:
+            res["locations"] = [{"physicalLocation": {"artifactLocation": {"uri": uri}}}]
         sarif_results.append(res)
     doc = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
            "runs": [{"tool": {"driver": {"name": "veridict", "version": __version__,

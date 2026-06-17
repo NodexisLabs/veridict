@@ -122,7 +122,11 @@ def file(step, repo):
     # exact content: `sha256` pins the bytes, so `touch <path>` can't satisfy the claim.
     if step.get("sha256"):
         import hashlib
-        h = hashlib.sha256(open(full, "rb").read()).hexdigest()
+        hsh = hashlib.sha256()
+        with open(full, "rb") as fh:                 # streamed — no large-file memory blowup
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                hsh.update(chunk)
+        h = hsh.hexdigest()
         ok = h == step["sha256"].lower()
         return (ok, f"{p} sha256 {'matches' if ok else 'MISMATCH ('+h[:12]+'…)'}")
     if step.get("contains") is not None:

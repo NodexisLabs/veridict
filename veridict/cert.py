@@ -45,9 +45,16 @@ def certify(results, overall, key=None):
     return cert
 
 
-def verify_certificate(cert, key=None):
+def verify_certificate(cert, key=None, require_signed=False):
     """Recompute the digest (and HMAC if signed) from the certificate's own payload.
-    Returns (ok, reason). Detects any post-hoc edit to a claim/verdict/evidence."""
+    Returns (ok, reason).
+
+    SECURITY: the bare digest only proves INTEGRITY (catches accidental corruption) — it is
+    NOT tamper-proof, because anyone can edit the payload and recompute the sha256. Only an
+    HMAC-SIGNED certificate (created with a key) is tamper-evident, since forging the
+    signature needs the key. Pass require_signed=True to reject unsigned certs outright."""
+    if require_signed and not cert.get("signed"):
+        return False, "certificate is unsigned — not tamper-evident; sign with a key (require_signed)"
     payload = {k: cert.get(k) for k in ("tool", "version", "overall", "steps")}
     blob = _canonical(payload)
     if hashlib.sha256(blob).hexdigest() != cert.get("digest_sha256"):
@@ -59,4 +66,5 @@ def verify_certificate(cert, key=None):
         expected = hmac.new(k, blob, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, cert.get("signature_hmac_sha256", "")):
             return False, "HMAC signature mismatch — wrong key or tampered certificate"
-    return True, "certificate intact" + (" and signature valid" if cert.get("signed") else "")
+        return True, "certificate intact and HMAC signature valid (tamper-evident)"
+    return True, "digest intact (INTEGRITY ONLY — unsigned, not tamper-proof; sign for that)"

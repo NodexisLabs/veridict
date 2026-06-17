@@ -34,6 +34,23 @@ DEFAULT_MAP = [
 ]
 
 
+_FAIL_STATUS = {"error", "rejected", "abstained", "escalated", "failed", "failure", "false", "denied"}
+
+
+def _failed(call):
+    """A tool call whose own result says it FAILED is not a success to verify — skip it,
+    don't turn it into a success claim (extraction otherwise can't tell attempted from done)."""
+    st = call.get("status")
+    if st is None and isinstance(call.get("result"), dict):
+        st = call["result"].get("status")
+    if isinstance(st, str) and st.lower() in _FAIL_STATUS:
+        return True
+    for k in ("ok", "success", "succeeded"):
+        if call.get(k) is False:
+            return True
+    return False
+
+
 def _args(a):
     """Tool arguments may be a dict or a JSON string (OpenAI). Normalize to dict."""
     if isinstance(a, dict):
@@ -52,8 +69,9 @@ def _step_for(name, args, mapping):
     for pat, action, build in mapping:
         if re.search(pat, name):
             extra = {k: v for k, v in build(args).items() if v not in (None, "")}
-            if action in ("file", "commit", "http", "branch") and not extra:
+            if action in ("file", "commit", "http", "branch", "cmd") and not extra:
                 continue                       # matched a name but no usable target -> not checkable
+                                               # (e.g. 'get_run_status' matches 'run' but has no command)
             return {"actor": "agent", "action": action, "claim": f"{name}({', '.join(f'{k}={v}' for k,v in args.items())})"[:120], **extra}
     return None
 
@@ -64,6 +82,8 @@ def extract(calls, mapping=None, repo=None):
     mapping = mapping or DEFAULT_MAP
     chain = []
     for c in calls:
+        if _failed(c):
+            continue                           # the call itself reports failure -> not a claim
         step = _step_for(c.get("name"), _args(c.get("arguments") or c.get("args") or {}), mapping)
         if step:
             if repo:
@@ -78,6 +98,9 @@ def extract_report(calls, mapping=None):
     mapping = mapping or DEFAULT_MAP
     chain, skipped = [], []
     for c in calls:
+        if _failed(c):
+            skipped.append(f"{c.get('name')} (reported failed)")
+            continue
         step = _step_for(c.get("name"), _args(c.get("arguments") or c.get("args") or {}), mapping)
         (chain.append(step) if step else skipped.append(c.get("name")))
     return chain, skipped

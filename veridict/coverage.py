@@ -21,7 +21,10 @@ from .core import ACCEPT
 
 _SUCCESS = re.compile(r"\b(saved|wrote|written|created|stored|committed|pushed|deployed|"
                       r"updated|generated|added|done|complete|completed|success\w*)\b", re.I)
-_ARTIFACT = re.compile(r"https?://[^\s)\"'>]+|\b[\w./\\-]+\.[A-Za-z0-9]{1,8}\b")
+# a URL, or a path/filename whose extension is ALPHABETIC (so "python3.12" / version numbers
+# are not mistaken for files). Common prose abbreviations are filtered separately.
+_ARTIFACT = re.compile(r"https?://[^\s)\"'>]+|\b[\w./\\-]+\.[A-Za-z]{1,8}\b")
+_NOT_ARTIFACT = {"e.g", "i.e", "etc", "vs", "a.m", "p.m", "et.al"}
 
 
 def _verified_tokens(results):
@@ -48,7 +51,7 @@ def mention_coverage(answer, results):
         for m in _ARTIFACT.findall(sentence):
             tok = m.lower()
             base = os.path.basename(tok)
-            if tok in verified or base in verified or tok in seen:
+            if tok.rstrip(".") in _NOT_ARTIFACT or tok in verified or base in verified or tok in seen:
                 continue
             seen.add(tok)
             flagged.append({"artifact": m, "sentence": sentence.strip()[:160]})

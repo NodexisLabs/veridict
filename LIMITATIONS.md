@@ -78,6 +78,17 @@ pass), CLI + GitHub Action + Python API, HTML report + color terminal (Windows V
     connect), but an HTTP GET can still trigger server-side effects; it is not provably
     side-effect-free.
 
+## v2 features — their boundaries
+
+These came out of an adversarial stress pass; the dangerous ones are fixed, the rest are stated.
+
+- **MCP server runs no commands by default.** `cmd`/`tests` steps are *re-run* commands, so exposing them over MCP would be remote code execution. The MCP `verify` tool therefore **refuses to execute `cmd`/`tests`** (they return ESCALATE) unless you set `VERIDICT_MCP_ALLOW_EXEC=1` on a host you trust. Non-executable checks (git/file/http/port) run normally.
+- **Certificates: unsigned = checksum, signed = tamper-proof.** A bare `certify()` digest detects accidental corruption but is *not* tamper-evident — anyone can edit the payload and recompute the sha256. Only an **HMAC-signed** certificate (created with a key) resists forgery. Use `verify_certificate(..., require_signed=True)` to reject unsigned certs. Note HMAC is symmetric (shared-secret), not non-repudiation.
+- **Extraction is mapping-based and best-effort.** `extract()` maps known tool-name patterns to claims; a tool it doesn't recognize (including destructive ones like `delete_file`) is **skipped and reported** in the `skipped` list — never silently passed, but also not checked. It also skips calls whose result reports failure, so it won't turn an *attempted* action into a *done* claim. Extend the mapping for your tools. A tool call is a claim *to verify*, not proof.
+- **`json_path` uses dotted segments** (`data.items.0.name`) and so cannot address a key that literally contains a `.`. Rare; use a custom checker for those.
+- **SARIF locations are emitted only for `file` steps** (as forward-slash URIs). `cmd`/`http`/`port` results carry no `artifactLocation` — they aren't files.
+- **Narration coverage is advisory, not a gate.** It flags artifacts the prose claims success about that no verified step covers; it's deliberately not a verdict (text honesty-detection is unreliable — see the README note).
+
 ## The boundary, in one line
 
 veridict answers **"did the claimed action actually happen, against reality?"** — not
