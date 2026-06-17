@@ -28,5 +28,5 @@ jobs:
         run: pip install -e .
       - name: Test suite (42 assertions vs real git/http/ports)
         run: python tests/test_veridict.py
-      - name: CLI smoke (demo against a throwaway git repo)
-        run: python -m veridict demo
+      - name: Demo behaves (it must REJECT — the demo plants lies to catch)
+        run: python -c "from veridict.demo import demo; from veridict import REJECT; import sys; sys.exit(0 if demo() == REJECT else 1)"
