@@ -9,10 +9,11 @@ network) — never the agent's self-report. Stdlib only, deterministic, no LLM.
 Add your own:  veridict.register("deployed", my_checker)
 """
 from __future__ import annotations
+import json as _json
 import os
 import socket
 import subprocess
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 
@@ -90,11 +91,21 @@ def clean_tree(step, repo):
 
 
 def cmd(step, repo):
-    c = step.get("cmd")
+    # `args` (list) runs WITHOUT a shell (shell=False) — the hardened form, no shell injection.
+    # `cmd` (string) runs through the shell for convenience. `timeout` (default 120s) keeps a
+    # hung command from wedging the gate: a timeout is unverifiable -> ESCALATE, not a pass.
+    c = step.get("args") or step.get("cmd")
     if not c:
-        return None, "no cmd given to verify"
-    r = _run(c, cwd=str(repo) if repo else None)
-    return (r.returncode == 0, f"`{c}` -> exit {r.returncode}")
+        return None, "no cmd/args given to verify"
+    cwd = str(repo) if repo else None
+    timeout = step.get("timeout", 120)
+    label = c if isinstance(c, str) else " ".join(c)
+    try:
+        r = subprocess.run(c, cwd=cwd, capture_output=True, text=True,
+                           shell=isinstance(c, str), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"`{label}` did not finish in {timeout}s -> cannot verify"
+    return (r.returncode == 0, f"`{label}` -> exit {r.returncode}")
 
 
 def file(step, repo):
@@ -104,6 +115,16 @@ def file(step, repo):
     full = os.path.join(str(repo), p) if (repo and not os.path.isabs(p)) else p
     if not os.path.exists(full):
         return False, f"{p} MISSING"
+    # freshness: `since` (epoch secs) requires the file was written at/after that time —
+    # closes the "stale pre-existing file passes" gap (LIMITATIONS #8).
+    if step.get("since") is not None and os.path.getmtime(full) < float(step["since"]) - 1.0:
+        return False, f"{p} is STALE (mtime predates since={step['since']})"
+    # exact content: `sha256` pins the bytes, so `touch <path>` can't satisfy the claim.
+    if step.get("sha256"):
+        import hashlib
+        h = hashlib.sha256(open(full, "rb").read()).hexdigest()
+        ok = h == step["sha256"].lower()
+        return (ok, f"{p} sha256 {'matches' if ok else 'MISMATCH ('+h[:12]+'…)'}")
     if step.get("contains") is not None:
         txt = open(full, encoding="utf-8", errors="ignore").read()
         ok = step["contains"] in txt
@@ -111,21 +132,55 @@ def file(step, repo):
     return True, f"{p} exists"
 
 
+def _dig(obj, path):
+    """Walk a dotted json path like 'data.items.0.name' (list indices allowed)."""
+    cur = obj
+    for part in str(path).split("."):
+        if isinstance(cur, list) and part.lstrip("-").isdigit():
+            cur = cur[int(part)]
+        elif isinstance(cur, dict):
+            cur = cur[part]
+        else:
+            raise KeyError(part)
+    return cur
+
+
 def http(step, repo):
     url = step.get("url")
     if not url:
         return None, "no url given"
     want = int(step.get("status", 200))
+    method = (step.get("method") or "GET").upper()
+    headers = dict(step.get("headers") or {})
+    data = None
+    if step.get("json") is not None:                 # send a JSON body
+        data = _json.dumps(step["json"]).encode()
+        headers.setdefault("Content-Type", "application/json")
+    elif step.get("body") is not None:
+        data = step["body"].encode() if isinstance(step["body"], str) else step["body"]
+    req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(url, timeout=step.get("timeout", 5)) as resp:
+        with urlopen(req, timeout=step.get("timeout", 5)) as resp:
             code = getattr(resp, "status", resp.getcode())
-    except HTTPError as e:                       # 4xx/5xx still carry a status to compare
-        code = e.code
+            payload = resp.read()
+    except HTTPError as e:                            # 4xx/5xx still carry a status to compare
+        code, payload = e.code, e.read()
     except URLError as e:
-        return (False, f"GET {url} unreachable: {e.reason}")
+        return (False, f"{method} {url} unreachable: {e.reason}")
     except Exception as e:
-        return (None, f"GET {url} error: {e}")
-    return (code == want, f"GET {url} -> {code} (want {want})")
+        return (None, f"{method} {url} error: {e}")
+    if code != want:
+        return (False, f"{method} {url} -> {code} (want {want})")
+    # optional: assert a value at a dotted path in the JSON response equals `json_expect`
+    if step.get("json_path") is not None:
+        try:
+            got = _dig(_json.loads(payload.decode("utf-8", "ignore")), step["json_path"])
+        except Exception as e:
+            return (None, f"{method} {url} {code}, but json_path '{step['json_path']}' not found ({type(e).__name__})")
+        exp = step.get("json_expect")
+        ok = (got == exp) if "json_expect" in step else (got is not None)
+        return (ok, f"{method} {url} -> {code}; {step['json_path']}={got!r}" + (f" (want {exp!r})" if "json_expect" in step else ""))
+    return (True, f"{method} {url} -> {code} (want {want})")
 
 
 def port(step, repo):

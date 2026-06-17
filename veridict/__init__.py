@@ -8,7 +8,13 @@ stdlib only. ACCEPT / REJECT / ESCALATE per step; the gap (ESCALATE) is honest a
 from .core import confirm_chain, confirm_step, narrate, ACCEPT, REJECT, ESCALATE
 from .checkers import CHECKERS, register
 from .recorder import Recorder
+from .extract import extract, extract_report, from_openai
+from .output import to_json, to_sarif
+from .cert import certify, verify_certificate
+from .coverage import mention_coverage
 
 __all__ = ["confirm_chain", "confirm_step", "narrate", "Recorder",
-           "CHECKERS", "register", "ACCEPT", "REJECT", "ESCALATE"]
-__version__ = "0.1.0"
+           "CHECKERS", "register", "ACCEPT", "REJECT", "ESCALATE",
+           "extract", "extract_report", "from_openai",
+           "to_json", "to_sarif", "certify", "verify_certificate", "mention_coverage"]
+__version__ = "0.2.0"
