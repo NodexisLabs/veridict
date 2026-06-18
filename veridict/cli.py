@@ -55,6 +55,7 @@ def main(argv=None):
     d = sub.add_parser("demo", help="run the built-in demo against a throwaway git repo")
     d.add_argument("--html", default=None, metavar="PATH")
     sub.add_parser("mcp", help="run as an MCP server over stdio")
+    sub.add_parser("hook", help="Claude Code PostToolUse hook: verify Write/Edit vs disk (reads stdin)")
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":
@@ -65,6 +66,10 @@ def main(argv=None):
         from .mcp import serve
         serve()
         return 0
+
+    if a.cmd == "hook":
+        from .hook import main as hook_main
+        return hook_main()
 
     if a.cmd == "extract":
         from .extract import extract, extract_report, from_openai

@@ -47,6 +47,15 @@ veridict verify chain.jsonl --repo .   # your agent emits chain.jsonl; this gate
     repo: .
 ```
 
+**As a Claude Code hook** (catch Write/Edit claims that didn't actually land — the agent reports success, veridict checks the file on disk and feeds back a mismatch):
+```jsonc
+// .claude/settings.json
+{ "hooks": { "PostToolUse": [
+  { "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+    "hooks": [ { "type": "command", "command": "veridict hook" } ] } ] } }
+```
+Exit 0 = verified (quiet); exit 2 = ground-truth mismatch, surfaced to the model. It's a detector, never breaks your session. (`python -m veridict.hook` also works.)
+
 **In code, accumulate claims then confirm:**
 ```python
 from veridict import Recorder
