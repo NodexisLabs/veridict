@@ -211,9 +211,61 @@ def pr(step, repo):
     return (state == want, f"PR {n} state {state} (want {want})")
 
 
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build",
+              ".mypy_cache", ".pytest_cache"}
+_CODE_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java", ".rb", ".sh",
+             ".c", ".cpp", ".h", ".cs", ".php", ".yaml", ".yml", ".toml", ".json", ".env", ".cfg", ".ini")
+
+
+def no_match(step, repo):
+    """A regex must NOT appear in any source file (e.g. 'no hardcoded keys'). ACCEPT if
+    absent; REJECT with up-to-5 file:line hits. `ext` overrides the scanned extensions."""
+    import re as _re
+    pat = _re.compile(step["pattern"])
+    exts = tuple(step.get("ext", _CODE_EXT))
+    root = str(repo or ".")
+    hits = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.endswith(".egg-info")]
+        for f in files:
+            if not f.endswith(exts):
+                continue
+            fp = os.path.join(dirpath, f)
+            try:
+                if os.path.getsize(fp) > step.get("max_bytes", 2_000_000):
+                    continue                              # skip huge files
+                with open(fp, encoding="utf-8", errors="ignore") as fh:
+                    for i, line in enumerate(fh, 1):
+                        if pat.search(line):
+                            hits.append(f"{os.path.relpath(fp, root)}:{i}")
+                            break
+            except OSError:
+                continue
+            if len(hits) >= 5:
+                break
+        if len(hits) >= 5:
+            break
+    ok = not hits
+    return ok, (f"/{step['pattern']}/ absent from source" if ok
+                else f"FOUND /{step['pattern']}/ at: {', '.join(hits)}")
+
+
+def commit_trailer(step, repo):
+    """The latest commit's full message must match `pattern` (e.g. a Co-Authored-By trailer,
+    a ticket id, a conventional-commit prefix)."""
+    import re as _re
+    r = _git(repo, "log", "-1", "--format=%B")
+    if r.returncode != 0:
+        return None, "not a git repo -> cannot verify commit message"
+    found = bool(_re.search(step["pattern"], r.stdout))
+    return found, (f"latest commit matches /{step['pattern']}/" if found
+                   else f"latest commit is MISSING /{step['pattern']}/")
+
+
 CHECKERS = {
     "commit": commit, "branch": branch, "push": push, "tag": tag, "clean": clean_tree,
     "cmd": cmd, "tests": cmd, "file": file, "http": http, "port": port, "pr": pr,
+    "no_match": no_match, "commit_trailer": commit_trailer,
 }
 
 

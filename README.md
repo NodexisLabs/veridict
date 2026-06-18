@@ -42,7 +42,11 @@ Wires the PostToolUse hook + the MCP server + a `/veridict` skill into the proje
 After that you never touch hook config; you just talk: *"did that actually write?"*, *"you said
 tests pass — check"*, *"from now on verify my writes."* The `/veridict` skill drives the rest.
 
-**Did Claude follow your `CLAUDE.md`?** The checkable rules, at least — see [`examples/claude_md_compliance.py`](examples/claude_md_compliance.py): it encodes rules like *"no hardcoded keys"*, *"no Anthropic API in code"*, *"commits credit Claude"* as veridict checks (with custom `no_match` / `commit_trailer` checkers), runs them against a repo, and **says plainly which rules it can't gate** (style/intent — that's not a weakness, it's the honesty).
+**Did Claude follow your `CLAUDE.md`?**
+```bash
+veridict claude-md           # auto-finds CLAUDE.md; maps the checkable rules and runs them
+```
+It reads your CLAUDE.md, auto-maps the **checkable** rules (no hardcoded keys, no Anthropic API in code, commits credit Claude, clean tree…) into veridict checks and runs them — and **lists the rules it can't gate** (style/intent) rather than faking a verdict. The mapper is conservative: when a rule isn't confidently checkable, it abstains. For hand-written/custom rules, see [`examples/claude_md_compliance.py`](examples/claude_md_compliance.py).
 
 ## Use it
 

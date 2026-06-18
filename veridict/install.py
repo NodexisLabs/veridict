@@ -45,6 +45,12 @@ The user is pointing at something just done. DON'T reconfigure. Just check reali
 - "it's deployed" -> chain `{"action":"http","url":"...","status":200}`.
 Report what reality said in one line. If it's a REJECT, offer to fix and re-verify.
 
+## A2) "did you follow my CLAUDE.md?" / "check my rules"
+Run `veridict claude-md` — it maps the CHECKABLE rules in CLAUDE.md (no hardcoded keys,
+no Anthropic API, commits credit Claude, clean tree...) to checks and runs them, and lists
+the rules it can't gate (style/intent). Report the verdict + be upfront about what wasn't
+gateable. Don't oversell — it checks the checkable subset, honestly.
+
 ## B) "set it up" / "always verify my writes" (persist)
 Walk the user through up to 4 quick decisions — offer the defaults and let them just say
 "defaults"; don't belabor it:

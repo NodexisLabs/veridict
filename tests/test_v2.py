@@ -251,6 +251,44 @@ def test_hook():
                {"new_string": "enabled: true"}, {"new_string": "NEVER_WRITTEN_xyz"}]}), 2)
 
 
+def test_text_checkers():
+    print("\n[built-in checkers: no_match + commit_trailer]")
+    d = tempfile.mkdtemp(prefix="vtc_")
+    open(os.path.join(d, "a.py"), "w").write("x = 1\nTODO: fix this\n")
+    expect("no_match finds pattern -> REJECT", v({"action": "no_match", "path": d, "repo": d, "pattern": r"\bTODO\b"}), REJECT)
+    expect("no_match absent -> ACCEPT", v({"action": "no_match", "repo": d, "pattern": r"\bNOPE\b"}), ACCEPT)
+    r = tempfile.mkdtemp(prefix="vct_")
+    import subprocess
+    subprocess.run(["git", "-C", r, "init", "-q"], capture_output=True)
+    open(os.path.join(r, "f.txt"), "w").write("x")
+    subprocess.run(["git", "-C", r, "add", "f.txt"], capture_output=True)
+    subprocess.run(["git", "-C", r, "-c", "user.email=a@b.c", "-c", "user.name=ac",
+                    "commit", "-q", "-m", "feat: x\n\nCo-Authored-By: Claude <x@y>"], capture_output=True)
+    expect("commit_trailer match -> ACCEPT", v({"action": "commit_trailer", "repo": r, "pattern": r"Co-Authored-By:\s*Claude"}), ACCEPT)
+    expect("commit_trailer missing -> REJECT", v({"action": "commit_trailer", "repo": r, "pattern": r"ZZZ-\d+"}), REJECT)
+
+
+def test_claude_md():
+    print("\n[claude_md: map checkable rules, abstain on intent]")
+    from veridict.claude_md import map_rule, from_text
+    def act(rule): return (map_rule(rule)[0] or {}).get("action")
+    expect("'No hardcoded keys' -> no_match", act("No hardcoded keys in any file"), "no_match")
+    expect("'No Anthropic API in code — ...' -> no_match (embedded)",
+           act("No Anthropic API in code — Claude Code CLI IS the LLM."), "no_match")
+    expect("'commits must credit Claude' -> commit_trailer",
+           act("Commit messages must credit Claude with a Co-Authored-By trailer"), "commit_trailer")
+    expect("'working tree must be clean' -> clean", act("The working tree must be clean before you stop"), "clean")
+    # regressions for false maps the real CLAUDE.md surfaced:
+    expect("'no hardcoded fallbacks' -> abstain (not a secret rule)",
+           map_rule("No placeholder/sample/hardcoded fallbacks.")[0], None)
+    expect("'do not print .env' -> abstain (verb print, not code print())",
+           map_rule("Do not use Bash to print .env contents")[0], None)
+    expect("'be concise' -> abstain (semantic)", map_rule("Drop signal-free words; be concise")[0], None)
+    chain, unmapped = from_text("# Rules\n- No hardcoded keys\n- Write clean code\n```\nno hardcoded keys (in code block)\n```\n")
+    expect("from_text maps the checkable one", len(chain), 1)
+    expect("from_text abstains on the semantic one", len(unmapped), 1)
+
+
 def test_install():
     print("\n[install: wire project + self-verify with veridict]")
     from veridict.install import install
@@ -268,6 +306,7 @@ def test_install():
 def main():
     for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract, test_hook, test_install,
               test_output, test_cert, test_coverage, test_mcp,
+              test_text_checkers, test_claude_md,
               test_mcp_no_rce, test_mcp_sandbox, test_cert_require_signed, test_extract_skips_failed):
         try:
             t()

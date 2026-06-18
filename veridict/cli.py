@@ -62,6 +62,9 @@ def main(argv=None):
     ins.add_argument("--no-mcp", action="store_true", help="skip MCP server registration")
     ins.add_argument("--no-skill", action="store_true", help="skip the /veridict skill")
     ins.add_argument("--matcher", default=None, help="tool matcher for the hook")
+    cm = sub.add_parser("claude-md", help="map a CLAUDE.md's checkable rules to checks and run them")
+    cm.add_argument("path", nargs="?", default=None, help="path to CLAUDE.md (default: auto-find)")
+    cm.add_argument("--repo", default=None, help="repo to check against (default: cwd)")
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":
@@ -76,6 +79,27 @@ def main(argv=None):
     if a.cmd == "hook":
         from .hook import main as hook_main
         return hook_main()
+
+    if a.cmd == "claude-md":
+        from .claude_md import from_file, find_claude_md
+        from .core import ACCEPT as _A
+        path = a.path or find_claude_md(a.repo or ".")
+        if not path:
+            print("no CLAUDE.md found (looked in ./, ./.claude/, ~/.claude/)")
+            return 1
+        chain, unmapped = from_file(path, repo=a.repo)
+        print(f"CLAUDE.md: {path}")
+        print(f"  {len(chain)} checkable rule(s) mapped; {len(unmapped)} not gateable\n")
+        overall = _A
+        if chain:
+            _, overall = confirm_chain(chain, repo=a.repo)
+        else:
+            print("  (no auto-checkable rules found)")
+        if unmapped:
+            print("\n  not gateable (veridict won't fake a verdict on intent):")
+            for rule, why in unmapped:
+                print(f"    · {rule[:66]}  —  {why}")
+        return 0 if overall == _A else 1
 
     if a.cmd == "install":
         from .install import install, DEFAULT_MATCHER
