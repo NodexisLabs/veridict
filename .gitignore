@@ -10,10 +10,10 @@ dist/
 .deepeval/
 .deepeval
 
-# local throwaways: screenshot renderers, generated reports, launch notes
-# (named explicitly so we don't accidentally ignore __init__.py)
-_snap_terminal.py
-_capture_real.ps1
+# local throwaways: red-team scripts, screenshot renderers, generated reports, launch notes
+# (root-anchored so it never catches package dunders like veridict/__init__.py)
+/_*.py
+/_*.ps1
 *.png
 *.html
 LAUNCH_POST.md
