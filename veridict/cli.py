@@ -56,6 +56,12 @@ def main(argv=None):
     d.add_argument("--html", default=None, metavar="PATH")
     sub.add_parser("mcp", help="run as an MCP server over stdio")
     sub.add_parser("hook", help="Claude Code PostToolUse hook: verify Write/Edit vs disk (reads stdin)")
+    ins = sub.add_parser("install", help="wire veridict into a Claude Code project, then self-verify the install")
+    ins.add_argument("--dir", default=".", help="project dir (default: cwd)")
+    ins.add_argument("--no-hook", action="store_true", help="skip the PostToolUse hook")
+    ins.add_argument("--no-mcp", action="store_true", help="skip MCP server registration")
+    ins.add_argument("--no-skill", action="store_true", help="skip the /veridict skill")
+    ins.add_argument("--matcher", default=None, help="tool matcher for the hook")
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":
@@ -70,6 +76,17 @@ def main(argv=None):
     if a.cmd == "hook":
         from .hook import main as hook_main
         return hook_main()
+
+    if a.cmd == "install":
+        from .install import install, DEFAULT_MATCHER
+        from .core import narrate, ACCEPT as _A
+        results, overall, actions = install(a.dir, hook=not a.no_hook, mcp=not a.no_mcp,
+                                            skill=not a.no_skill, matcher=a.matcher or DEFAULT_MATCHER)
+        for label, path, state in actions:
+            print(f"  {label}: {state}  ({path})")
+        print("  --- self-verify (veridict confirming its own install) ---")
+        narrate(results, overall)
+        return 0 if overall == _A else 1
 
     if a.cmd == "extract":
         from .extract import extract, extract_report, from_openai

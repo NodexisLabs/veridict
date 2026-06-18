@@ -251,8 +251,22 @@ def test_hook():
                {"new_string": "enabled: true"}, {"new_string": "NEVER_WRITTEN_xyz"}]}), 2)
 
 
+def test_install():
+    print("\n[install: wire project + self-verify with veridict]")
+    from veridict.install import install
+    d = tempfile.mkdtemp(prefix="vinstall_")
+    results, overall, actions = install(d)
+    expect("install self-verifies ACCEPT", overall, ACCEPT)
+    expect("settings.json has the hook", os.path.exists(os.path.join(d, ".claude", "settings.json")), True)
+    expect(".mcp.json registers server", os.path.exists(os.path.join(d, ".mcp.json")), True)
+    expect("/veridict skill written", os.path.exists(os.path.join(d, ".claude", "skills", "veridict", "SKILL.md")), True)
+    expect("self-verify covers settings+mcp+skill+2 functional probes (5 rows)", len(results), 5)
+    _, _, actions2 = install(d)
+    expect("hook install is idempotent", dict((a[0], a[2]) for a in actions2)["settings.json"], "already present")
+
+
 def main():
-    for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract, test_hook,
+    for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract, test_hook, test_install,
               test_output, test_cert, test_coverage, test_mcp,
               test_mcp_no_rce, test_mcp_sandbox, test_cert_require_signed, test_extract_skips_failed):
         try:

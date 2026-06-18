@@ -32,6 +32,16 @@ pip install veridict        # from PyPI
 # or, from a clone:  pip install -e .
 ```
 
+## Zero-config setup for Claude Code
+
+```bash
+veridict install
+```
+Wires the PostToolUse hook + the MCP server + a `/veridict` skill into the project — then
+**verifies its own install with veridict** (it proves the hook actually fires on a ghost write).
+After that you never touch hook config; you just talk: *"did that actually write?"*, *"you said
+tests pass — check"*, *"from now on verify my writes."* The `/veridict` skill drives the rest.
+
 ## Use it
 
 **As a CI gate (exit code 0 = all confirmed, 1 = something didn't check out):**
