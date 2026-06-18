@@ -82,8 +82,8 @@ def map_rule(rule):
         if "conventional" in low:
             return {"action": "commit_trailer",
                     "pattern": r"^(feat|fix|chore|docs|refactor|test|perf|build|ci)(\(.+\))?!?:", "claim": rule}, None
-    if re.search(r"(working tree|repo\w*|tree)\b.{0,20}\bclean\b|\bno uncommitted\b", low):
-        return {"action": "clean", "claim": rule}, None
+    # NOTE: deliberately NOT auto-mapping "keep the working tree clean" — it's an aspirational
+    # standing rule, not a point-in-time post-condition; gating it would false-REJECT mid-run.
     return None, _why(rule)
 
 

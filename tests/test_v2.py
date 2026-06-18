@@ -77,6 +77,7 @@ def test_hardened_http():
                v({"action": "http", "url": base, "json_path": "data.nope"}), ESCALATE)
         expect("POST method + status -> ACCEPT",
                v({"action": "http", "url": base, "method": "POST", "json": {"x": 1}, "status": 200}), ACCEPT)
+        expect("no status given -> ACCEPT any <400 (200)", v({"action": "http", "url": base}), ACCEPT)
     finally:
         httpd.shutdown()
 
@@ -175,6 +176,8 @@ def test_mcp_sandbox():
     expect("traversal path -> ESCALATE", vd, ESCALATE)
     vd, ev = vmcp({"action": "port", "port": 22, "host": "10.0.0.1", "claim": "x"})
     expect("port scan over MCP -> ESCALATE (SSRF)", vd, ESCALATE)
+    vd, ev = vmcp({"action": "no_match", "pattern": "(a+a+)+b", "claim": "x"})
+    expect("no_match over MCP -> ESCALATE (ReDoS/scan)", (vd, "ReDoS" in ev), (ESCALATE, True))
 
 
 def test_mcp_no_rce():
@@ -244,6 +247,11 @@ def test_hook():
     expect("CRLF claim vs LF file -> 0 (line-ending robust)",
            ev("Write", {"file_path": real, "content": "version: 1.4.2\r\n"}), 0)
     expect("malformed payload (not a dict) -> 0 (never breaks session)", evaluate("not-json")[0], 0)
+    old = os.path.join(d, "stale.txt")
+    open(old, "w", encoding="utf-8").write("version: 1.4.2\n")
+    os.utime(old, (time.time() - 100000, time.time() - 100000))     # pre-existing & stale
+    expect("stale pre-existing file claimed as a write -> 2 (freshness)",
+           ev("Write", {"file_path": old, "content": "version: 1.4.2\n"}), 2)
     expect("non-dict tool_input -> 0 (no crash)",
            evaluate({"tool_name": "Write", "tool_input": [], "cwd": d})[0], 0)
     expect("partial MultiEdit (one edit missing) -> 2",
@@ -277,7 +285,8 @@ def test_claude_md():
            act("No Anthropic API in code — Claude Code CLI IS the LLM."), "no_match")
     expect("'commits must credit Claude' -> commit_trailer",
            act("Commit messages must credit Claude with a Co-Authored-By trailer"), "commit_trailer")
-    expect("'working tree must be clean' -> clean", act("The working tree must be clean before you stop"), "clean")
+    expect("'keep tree clean' -> abstain (aspirational, would false-reject)",
+           act("The working tree must be clean before you stop"), None)
     # regressions for false maps the real CLAUDE.md surfaced:
     expect("'no hardcoded fallbacks' -> abstain (not a secret rule)",
            map_rule("No placeholder/sample/hardcoded fallbacks.")[0], None)
@@ -303,8 +312,28 @@ def test_install():
     expect("hook install is idempotent", dict((a[0], a[2]) for a in actions2)["settings.json"], "already present")
 
 
+def test_audit_fixes():
+    print("\n[audit fixes: commit freshness, extract content-marker, _failed]")
+    import subprocess
+    from veridict import extract_report
+    from veridict.extract import _failed
+    r = tempfile.mkdtemp(prefix="vaf_")
+    subprocess.run(["git", "-C", r, "init", "-q"], capture_output=True)
+    open(os.path.join(r, "x"), "w").write("1")
+    subprocess.run(["git", "-C", r, "add", "x"], capture_output=True)
+    subprocess.run(["git", "-C", r, "-c", "user.email=a@b.c", "-c", "user.name=ac",
+                    "commit", "-q", "-m", "feat: thing"], capture_output=True)
+    expect("commit since(past) -> ACCEPT", v({"action": "commit", "repo": r, "message": "feat: thing", "since": time.time() - 3600}), ACCEPT)
+    expect("commit since(future) -> REJECT (too old)", v({"action": "commit", "repo": r, "message": "feat: thing", "since": time.time() + 3600}), REJECT)
+    chain, _ = extract_report([{"name": "write_file", "arguments": {"path": "a.txt", "content": "short\nthe longest claimed line\n"}}])
+    expect("extract write captures content marker (not existence-only)", chain[0].get("contains"), "the longest claimed line")
+    expect("_failed catches a present error field", _failed({"name": "w", "result": {"error": "denied"}}), True)
+    expect("_failed catches is_error", _failed({"name": "w", "is_error": True}), True)
+
+
 def main():
     for t in (test_hardened_file, test_hardened_cmd, test_hardened_http, test_extract, test_hook, test_install,
+              test_audit_fixes,
               test_output, test_cert, test_coverage, test_mcp,
               test_text_checkers, test_claude_md,
               test_mcp_no_rce, test_mcp_sandbox, test_cert_require_signed, test_extract_skips_failed):

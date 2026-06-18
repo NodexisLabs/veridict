@@ -24,10 +24,15 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 from .core import confirm_step, ACCEPT
 
 FILE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+# PostToolUse fires right after the tool, so a genuine write has an mtime of ~now. Require
+# freshness so a lie about a PRE-EXISTING (old) file is caught, not ACCEPTed on existence.
+# Generous window absorbs clock skew / slow hooks; 0 disables.
+_FRESH_SECS = int(os.environ.get("VERIDICT_HOOK_FRESH_SECS", "300"))
 
 
 def _probe(text):
@@ -72,7 +77,9 @@ def evaluate(payload):
     cwd = payload.get("cwd") or None
     claim = f"{payload['tool_name']} {os.path.basename(path)}"
     base = {"actor": "claude", "action": "file", "path": path, "claim": claim}
-    r = confirm_step(base, cwd)                       # existence (+ freshness) first
+    if _FRESH_SECS:
+        base["since"] = time.time() - _FRESH_SECS     # a real write is recent; a lie about an old file isn't
+    r = confirm_step(base, cwd)                       # existence + freshness first
     if r["verdict"] != ACCEPT:
         return _mismatch(claim, r["evidence"])
     for m in _markers(payload["tool_name"], ti):      # then EVERY claimed marker must be present

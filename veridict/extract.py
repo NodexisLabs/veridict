@@ -18,10 +18,19 @@ from __future__ import annotations
 import json
 import re
 
+def _marker(text):
+    """CRLF-robust content marker (longest non-blank line) so a write claim verifies the
+    content landed, not just that the file exists. "" when there's nothing to anchor on."""
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    return max((ln.strip() for ln in text.splitlines() if ln.strip()), key=len, default="")
+
+
 # name-pattern -> (action, builder(args) -> extra step fields). First match wins.
 DEFAULT_MAP = [
     (r"write|save|create.*file|put.*file|fs[_.]?write", "file",
-     lambda a: {"path": a.get("path") or a.get("file") or a.get("filename") or a.get("filepath")}),
+     lambda a: {"path": a.get("path") or a.get("file") or a.get("filename") or a.get("filepath"),
+                "contains": _marker(a.get("content") or a.get("text") or a.get("contents") or a.get("data") or "")}),
     (r"read.*file|cat|open.*file|fs[_.]?read", "file",
      lambda a: {"path": a.get("path") or a.get("file") or a.get("filename")}),
     (r"\b(run|exec|shell|bash|sh|command|terminal|pytest|test)\b", "cmd",
@@ -30,7 +39,8 @@ DEFAULT_MAP = [
     (r"push", "push", lambda a: {}),
     (r"branch", "branch", lambda a: {"name": a.get("name") or a.get("branch")}),
     (r"http|fetch|request|curl|get_url|api", "http",
-     lambda a: {"url": a.get("url") or a.get("endpoint"), "status": int(a.get("status", 200))}),
+     lambda a: {"url": a.get("url") or a.get("endpoint"),
+                **({"status": int(a["status"])} if str(a.get("status", "")).strip().isdigit() else {})}),
 ]
 
 
@@ -39,14 +49,19 @@ _FAIL_STATUS = {"error", "rejected", "abstained", "escalated", "failed", "failur
 
 def _failed(call):
     """A tool call whose own result says it FAILED is not a success to verify — skip it,
-    don't turn it into a success claim (extraction otherwise can't tell attempted from done)."""
-    st = call.get("status")
-    if st is None and isinstance(call.get("result"), dict):
-        st = call["result"].get("status")
+    don't turn it into a success claim (extraction otherwise can't tell attempted from done).
+    Covers status strings, ok/success=False, is_error=True, and a present `error` field."""
+    res = call.get("result") if isinstance(call.get("result"), dict) else {}
+    st = call.get("status") or res.get("status")
     if isinstance(st, str) and st.lower() in _FAIL_STATUS:
         return True
-    for k in ("ok", "success", "succeeded"):
-        if call.get(k) is False:
+    for src in (call, res):
+        if src.get("is_error") is True:
+            return True
+        for k in ("ok", "success", "succeeded"):
+            if src.get(k) is False:
+                return True
+        if src.get("error") not in (None, "", False, [], {}):   # a non-empty error field = failed
             return True
     return False
 

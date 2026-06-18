@@ -23,6 +23,7 @@ from .output import to_json
 # opt-in only on a trusted host. (Locally / in CI, use the library or CLI without limits.)
 _EXEC_ACTIONS = {"cmd", "tests"}
 _NET_ACTIONS = {"http", "port"}
+_SCAN_ACTIONS = {"no_match", "commit_trailer"}        # take an untrusted regex + scan files
 _ALLOW_EXEC = os.environ.get("VERIDICT_MCP_ALLOW_EXEC") == "1"
 _ALLOW_NET = os.environ.get("VERIDICT_MCP_ALLOW_NET") == "1"
 # the only repo/dir the MCP server will touch — caller-supplied repo/paths can't escape it
@@ -47,6 +48,9 @@ def _denied(step):
         return "executable check (cmd/tests) disabled over MCP — RCE risk (VERIDICT_MCP_ALLOW_EXEC=1)"
     if a in _NET_ACTIONS and not _ALLOW_NET:
         return "network check (http/port) disabled over MCP — SSRF risk (VERIDICT_MCP_ALLOW_NET=1)"
+    if a in _SCAN_ACTIONS and not _ALLOW_EXEC:
+        return ("regex/source-scan check (no_match/commit_trailer) disabled over MCP — untrusted "
+                "regex = ReDoS + read-amplification (VERIDICT_MCP_ALLOW_EXEC=1)")
     p = step.get("path")
     if isinstance(p, str) and p and _escapes_sandbox(p):
         return "path escapes the MCP sandbox (absolute/traversal/symlink) — arbitrary-read risk"

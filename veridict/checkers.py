@@ -40,17 +40,26 @@ def commit(step, repo):
     # Loose substring matching is opt-in via step['loose']=True, since a generic claim
     # ("fix") would otherwise match any commit that merely contains it.
     if step.get("message"):
-        r = _git(repo, "log", "--format=%s", "-n", str(step.get("depth", 50)))
+        r = _git(repo, "log", "--format=%ct\x1f%s", "-n", str(step.get("depth", 50)))
         if r.returncode != 0:
             return None, "not a git repo"
         m = step["message"].strip()
-        subjects = [ln.strip() for ln in r.stdout.splitlines()]
-        if step.get("loose"):
-            found = any(m.lower() in s.lower() for s in subjects)
-            how = "loose-substring"
-        else:
-            found = any(m.lower() == s.lower() for s in subjects)
-            how = "exact-subject"
+        since = step.get("since")          # epoch secs: require the matching commit be this fresh
+        loose = step.get("loose")
+        found = False
+        for ln in r.stdout.splitlines():
+            ts, _, subj = ln.partition("\x1f")
+            if since:
+                try:
+                    if float(ts) < float(since) - 1.0:
+                        continue           # too old to be this run's commit
+                except ValueError:
+                    pass
+            subj = subj.strip()
+            if (m.lower() in subj.lower()) if loose else (m.lower() == subj.lower()):
+                found = True
+                break
+        how = ("loose-substring" if loose else "exact-subject") + (f", since={since}" if since else "")
         return (found, f"commit '{m}' {'found' if found else 'NOT in git log'} ({how})")
     r = _git(repo, "log", "--oneline", "-n", "1")
     if r.returncode != 0:
@@ -153,6 +162,7 @@ def http(step, repo):
     url = step.get("url")
     if not url:
         return None, "no url given"
+    has_status = "status" in step                    # explicit status -> exact; else any non-error
     want = int(step.get("status", 200))
     method = (step.get("method") or "GET").upper()
     headers = dict(step.get("headers") or {})
@@ -173,8 +183,10 @@ def http(step, repo):
         return (False, f"{method} {url} unreachable: {e.reason}")
     except Exception as e:
         return (None, f"{method} {url} error: {e}")
-    if code != want:
-        return (False, f"{method} {url} -> {code} (want {want})")
+    status_ok = (code == want) if has_status else (code < 400)
+    target = f"want {want}" if has_status else "want any <400"
+    if not status_ok:
+        return (False, f"{method} {url} -> {code} ({target})")
     # optional: assert a value at a dotted path in the JSON response equals `json_expect`
     if step.get("json_path") is not None:
         try:
@@ -184,7 +196,7 @@ def http(step, repo):
         exp = step.get("json_expect")
         ok = (got == exp) if "json_expect" in step else (got is not None)
         return (ok, f"{method} {url} -> {code}; {step['json_path']}={got!r}" + (f" (want {exp!r})" if "json_expect" in step else ""))
-    return (True, f"{method} {url} -> {code} (want {want})")
+    return (True, f"{method} {url} -> {code} ({target})")
 
 
 def port(step, repo):
@@ -221,12 +233,14 @@ def no_match(step, repo):
     """A regex must NOT appear in any source file (e.g. 'no hardcoded keys'). ACCEPT if
     absent; REJECT with up-to-5 file:line hits. `ext` overrides the scanned extensions."""
     import re as _re
+    if len(step["pattern"]) > 2000:                   # cheap ReDoS/abuse guard
+        return None, "pattern too long to evaluate safely"
     pat = _re.compile(step["pattern"])
     exts = tuple(step.get("ext", _CODE_EXT))
     root = str(repo or ".")
     hits = []
     for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.endswith(".egg-info")]
+        dirs[:] = [d for d in dirs if d.lower() not in _SKIP_DIRS and not d.lower().endswith(".egg-info")]
         for f in files:
             if not f.endswith(exts):
                 continue
@@ -254,9 +268,10 @@ def commit_trailer(step, repo):
     """The latest commit's full message must match `pattern` (e.g. a Co-Authored-By trailer,
     a ticket id, a conventional-commit prefix)."""
     import re as _re
-    r = _git(repo, "log", "-1", "--format=%B")
+    args = ["log", "-1", "--format=%B"] + ([step["sha"]] if step.get("sha") else [])
+    r = _git(repo, *args)                              # `sha` pins a specific commit (vs racing HEAD)
     if r.returncode != 0:
-        return None, "not a git repo -> cannot verify commit message"
+        return None, "not a git repo / no such commit -> cannot verify commit message"
     found = bool(_re.search(step["pattern"], r.stdout))
     return found, (f"latest commit matches /{step['pattern']}/" if found
                    else f"latest commit is MISSING /{step['pattern']}/")

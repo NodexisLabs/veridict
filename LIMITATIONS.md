@@ -63,6 +63,9 @@ pass), CLI + GitHub Action + Python API, HTML report + color terminal (Windows V
     permanence.
 12. **`push` is git's local view of the upstream.** It can't independently confirm the
     remote received and accepted the push beyond what git knows; no remote-side check.
+12b. **`branch` / `tag` verify existence, not creation.** "Created branch X" passes if X
+    already existed — there's no portable record of *when* a ref was made (reflog is local).
+    `commit` and `file` take an optional `since` for freshness; refs don't.
 13. **`pr` needs `gh` + auth.** Unavailable → ESCALATE, not a verdict.
 14. **`http` is GET-only built-in.** No POST / auth / custom headers without a custom
     checker. In locked-down CI, `http` / `port` may simply fail or ESCALATE.
