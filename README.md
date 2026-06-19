@@ -32,6 +32,22 @@ pip install veridict        # from PyPI
 # or, from a clone:  pip install -e .
 ```
 
+## Zero-config setup for Claude Code
+
+```bash
+veridict install
+```
+Wires the PostToolUse hook + the MCP server + a `/veridict` skill into the project — then
+**verifies its own install with veridict** (it proves the hook actually fires on a ghost write).
+After that you never touch hook config; you just talk: *"did that actually write?"*, *"you said
+tests pass — check"*, *"from now on verify my writes."* The `/veridict` skill drives the rest.
+
+**Did Claude follow your `CLAUDE.md`?**
+```bash
+veridict claude-md           # auto-finds CLAUDE.md; maps the checkable rules and runs them
+```
+It reads your CLAUDE.md, auto-maps the **checkable** rules (no hardcoded keys, no Anthropic API in code, commits credit Claude, clean tree…) into veridict checks and runs them — and **lists the rules it can't gate** (style/intent) rather than faking a verdict. The mapper is conservative: when a rule isn't confidently checkable, it abstains. For hand-written/custom rules, see [`examples/claude_md_compliance.py`](examples/claude_md_compliance.py).
+
 ## Use it
 
 **As a CI gate (exit code 0 = all confirmed, 1 = something didn't check out):**
@@ -46,6 +62,15 @@ veridict verify chain.jsonl --repo .   # your agent emits chain.jsonl; this gate
     chain: chain.jsonl   # your agent emits this during the run
     repo: .
 ```
+
+**As a Claude Code hook** (catch Write/Edit claims that didn't actually land — the agent reports success, veridict checks the file on disk and feeds back a mismatch):
+```jsonc
+// .claude/settings.json
+{ "hooks": { "PostToolUse": [
+  { "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+    "hooks": [ { "type": "command", "command": "veridict hook" } ] } ] } }
+```
+Exit 0 = verified (quiet); exit 2 = ground-truth mismatch, surfaced to the model. It's a detector, never breaks your session. (`python -m veridict.hook` also works.)
 
 **In code, accumulate claims then confirm:**
 ```python

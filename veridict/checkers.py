@@ -9,10 +9,11 @@ network) — never the agent's self-report. Stdlib only, deterministic, no LLM.
 Add your own:  veridict.register("deployed", my_checker)
 """
 from __future__ import annotations
+import json as _json
 import os
 import socket
 import subprocess
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 
@@ -39,17 +40,26 @@ def commit(step, repo):
     # Loose substring matching is opt-in via step['loose']=True, since a generic claim
     # ("fix") would otherwise match any commit that merely contains it.
     if step.get("message"):
-        r = _git(repo, "log", "--format=%s", "-n", str(step.get("depth", 50)))
+        r = _git(repo, "log", "--format=%ct\x1f%s", "-n", str(step.get("depth", 50)))
         if r.returncode != 0:
             return None, "not a git repo"
         m = step["message"].strip()
-        subjects = [ln.strip() for ln in r.stdout.splitlines()]
-        if step.get("loose"):
-            found = any(m.lower() in s.lower() for s in subjects)
-            how = "loose-substring"
-        else:
-            found = any(m.lower() == s.lower() for s in subjects)
-            how = "exact-subject"
+        since = step.get("since")          # epoch secs: require the matching commit be this fresh
+        loose = step.get("loose")
+        found = False
+        for ln in r.stdout.splitlines():
+            ts, _, subj = ln.partition("\x1f")
+            if since:
+                try:
+                    if float(ts) < float(since) - 1.0:
+                        continue           # too old to be this run's commit
+                except ValueError:
+                    pass
+            subj = subj.strip()
+            if (m.lower() in subj.lower()) if loose else (m.lower() == subj.lower()):
+                found = True
+                break
+        how = ("loose-substring" if loose else "exact-subject") + (f", since={since}" if since else "")
         return (found, f"commit '{m}' {'found' if found else 'NOT in git log'} ({how})")
     r = _git(repo, "log", "--oneline", "-n", "1")
     if r.returncode != 0:
@@ -90,11 +100,21 @@ def clean_tree(step, repo):
 
 
 def cmd(step, repo):
-    c = step.get("cmd")
+    # `args` (list) runs WITHOUT a shell (shell=False) — the hardened form, no shell injection.
+    # `cmd` (string) runs through the shell for convenience. `timeout` (default 120s) keeps a
+    # hung command from wedging the gate: a timeout is unverifiable -> ESCALATE, not a pass.
+    c = step.get("args") or step.get("cmd")
     if not c:
-        return None, "no cmd given to verify"
-    r = _run(c, cwd=str(repo) if repo else None)
-    return (r.returncode == 0, f"`{c}` -> exit {r.returncode}")
+        return None, "no cmd/args given to verify"
+    cwd = str(repo) if repo else None
+    timeout = step.get("timeout", 120)
+    label = c if isinstance(c, str) else " ".join(c)
+    try:
+        r = subprocess.run(c, cwd=cwd, capture_output=True, text=True,
+                           shell=isinstance(c, str), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"`{label}` did not finish in {timeout}s -> cannot verify"
+    return (r.returncode == 0, f"`{label}` -> exit {r.returncode}")
 
 
 def file(step, repo):
@@ -104,6 +124,20 @@ def file(step, repo):
     full = os.path.join(str(repo), p) if (repo and not os.path.isabs(p)) else p
     if not os.path.exists(full):
         return False, f"{p} MISSING"
+    # freshness: `since` (epoch secs) requires the file was written at/after that time —
+    # closes the "stale pre-existing file passes" gap (LIMITATIONS #8).
+    if step.get("since") is not None and os.path.getmtime(full) < float(step["since"]) - 1.0:
+        return False, f"{p} is STALE (mtime predates since={step['since']})"
+    # exact content: `sha256` pins the bytes, so `touch <path>` can't satisfy the claim.
+    if step.get("sha256"):
+        import hashlib
+        hsh = hashlib.sha256()
+        with open(full, "rb") as fh:                 # streamed — no large-file memory blowup
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                hsh.update(chunk)
+        h = hsh.hexdigest()
+        ok = h == step["sha256"].lower()
+        return (ok, f"{p} sha256 {'matches' if ok else 'MISMATCH ('+h[:12]+'…)'}")
     if step.get("contains") is not None:
         txt = open(full, encoding="utf-8", errors="ignore").read()
         ok = step["contains"] in txt
@@ -111,21 +145,58 @@ def file(step, repo):
     return True, f"{p} exists"
 
 
+def _dig(obj, path):
+    """Walk a dotted json path like 'data.items.0.name' (list indices allowed)."""
+    cur = obj
+    for part in str(path).split("."):
+        if isinstance(cur, list) and part.lstrip("-").isdigit():
+            cur = cur[int(part)]
+        elif isinstance(cur, dict):
+            cur = cur[part]
+        else:
+            raise KeyError(part)
+    return cur
+
+
 def http(step, repo):
     url = step.get("url")
     if not url:
         return None, "no url given"
+    has_status = "status" in step                    # explicit status -> exact; else any non-error
     want = int(step.get("status", 200))
+    method = (step.get("method") or "GET").upper()
+    headers = dict(step.get("headers") or {})
+    data = None
+    if step.get("json") is not None:                 # send a JSON body
+        data = _json.dumps(step["json"]).encode()
+        headers.setdefault("Content-Type", "application/json")
+    elif step.get("body") is not None:
+        data = step["body"].encode() if isinstance(step["body"], str) else step["body"]
+    req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(url, timeout=step.get("timeout", 5)) as resp:
+        with urlopen(req, timeout=step.get("timeout", 5)) as resp:
             code = getattr(resp, "status", resp.getcode())
-    except HTTPError as e:                       # 4xx/5xx still carry a status to compare
-        code = e.code
+            payload = resp.read()
+    except HTTPError as e:                            # 4xx/5xx still carry a status to compare
+        code, payload = e.code, e.read()
     except URLError as e:
-        return (False, f"GET {url} unreachable: {e.reason}")
+        return (False, f"{method} {url} unreachable: {e.reason}")
     except Exception as e:
-        return (None, f"GET {url} error: {e}")
-    return (code == want, f"GET {url} -> {code} (want {want})")
+        return (None, f"{method} {url} error: {e}")
+    status_ok = (code == want) if has_status else (code < 400)
+    target = f"want {want}" if has_status else "want any <400"
+    if not status_ok:
+        return (False, f"{method} {url} -> {code} ({target})")
+    # optional: assert a value at a dotted path in the JSON response equals `json_expect`
+    if step.get("json_path") is not None:
+        try:
+            got = _dig(_json.loads(payload.decode("utf-8", "ignore")), step["json_path"])
+        except Exception as e:
+            return (None, f"{method} {url} {code}, but json_path '{step['json_path']}' not found ({type(e).__name__})")
+        exp = step.get("json_expect")
+        ok = (got == exp) if "json_expect" in step else (got is not None)
+        return (ok, f"{method} {url} -> {code}; {step['json_path']}={got!r}" + (f" (want {exp!r})" if "json_expect" in step else ""))
+    return (True, f"{method} {url} -> {code} ({target})")
 
 
 def port(step, repo):
@@ -152,9 +223,64 @@ def pr(step, repo):
     return (state == want, f"PR {n} state {state} (want {want})")
 
 
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build",
+              ".mypy_cache", ".pytest_cache"}
+_CODE_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java", ".rb", ".sh",
+             ".c", ".cpp", ".h", ".cs", ".php", ".yaml", ".yml", ".toml", ".json", ".env", ".cfg", ".ini")
+
+
+def no_match(step, repo):
+    """A regex must NOT appear in any source file (e.g. 'no hardcoded keys'). ACCEPT if
+    absent; REJECT with up-to-5 file:line hits. `ext` overrides the scanned extensions."""
+    import re as _re
+    if len(step["pattern"]) > 2000:                   # cheap ReDoS/abuse guard
+        return None, "pattern too long to evaluate safely"
+    pat = _re.compile(step["pattern"])
+    exts = tuple(step.get("ext", _CODE_EXT))
+    root = str(repo or ".")
+    hits = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d.lower() not in _SKIP_DIRS and not d.lower().endswith(".egg-info")]
+        for f in files:
+            if not f.endswith(exts):
+                continue
+            fp = os.path.join(dirpath, f)
+            try:
+                if os.path.getsize(fp) > step.get("max_bytes", 2_000_000):
+                    continue                              # skip huge files
+                with open(fp, encoding="utf-8", errors="ignore") as fh:
+                    for i, line in enumerate(fh, 1):
+                        if pat.search(line):
+                            hits.append(f"{os.path.relpath(fp, root)}:{i}")
+                            break
+            except OSError:
+                continue
+            if len(hits) >= 5:
+                break
+        if len(hits) >= 5:
+            break
+    ok = not hits
+    return ok, (f"/{step['pattern']}/ absent from source" if ok
+                else f"FOUND /{step['pattern']}/ at: {', '.join(hits)}")
+
+
+def commit_trailer(step, repo):
+    """The latest commit's full message must match `pattern` (e.g. a Co-Authored-By trailer,
+    a ticket id, a conventional-commit prefix)."""
+    import re as _re
+    args = ["log", "-1", "--format=%B"] + ([step["sha"]] if step.get("sha") else [])
+    r = _git(repo, *args)                              # `sha` pins a specific commit (vs racing HEAD)
+    if r.returncode != 0:
+        return None, "not a git repo / no such commit -> cannot verify commit message"
+    found = bool(_re.search(step["pattern"], r.stdout))
+    return found, (f"latest commit matches /{step['pattern']}/" if found
+                   else f"latest commit is MISSING /{step['pattern']}/")
+
+
 CHECKERS = {
     "commit": commit, "branch": branch, "push": push, "tag": tag, "clean": clean_tree,
     "cmd": cmd, "tests": cmd, "file": file, "http": http, "port": port, "pr": pr,
+    "no_match": no_match, "commit_trailer": commit_trailer,
 }
 
 
