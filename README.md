@@ -57,7 +57,7 @@ veridict verify chain.jsonl --repo .   # your agent emits chain.jsonl; this gate
 
 **As a GitHub Action:**
 ```yaml
-- uses: NodexisLabs/veridict@v0.1.0
+- uses: NodexisLabs/veridict@v0.3.0
   with:
     chain: chain.jsonl   # your agent emits this during the run
     repo: .

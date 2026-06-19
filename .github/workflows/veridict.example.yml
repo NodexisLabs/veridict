@@ -14,7 +14,7 @@ jobs:
 
       # ... your agent runs here and emits chain.jsonl ...
 
-      - uses: NodexisLabs/veridict@v0.1.0
+      - uses: NodexisLabs/veridict@v0.3.0
         with:
           chain: chain.jsonl
           repo: .
