@@ -16,7 +16,7 @@ import hashlib
 import hmac
 import json
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # fields that are part of the attested payload (duration_ms is nondeterministic -> excluded)
 _PAYLOAD_KEYS = ("actor", "action", "claim", "verdict", "evidence", "checked_at")

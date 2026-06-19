@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veridict"
-version = "0.1.0"
+version = "0.3.0"
 description = "Verify an AI agent actually did what it claimed — a CI gate that checks claimed actions against ground truth."
 readme = "README.md"
 requires-python = ">=3.8"

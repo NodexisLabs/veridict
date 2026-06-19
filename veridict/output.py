@@ -12,7 +12,7 @@ import json
 
 from .core import ACCEPT, REJECT, ESCALATE
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # SARIF severity per verdict: a false claim is an error, an unverifiable one a warning.
 _LEVEL = {REJECT: "error", ESCALATE: "warning", ACCEPT: "note"}

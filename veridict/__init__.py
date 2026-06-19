@@ -17,4 +17,4 @@ __all__ = ["confirm_chain", "confirm_step", "narrate", "Recorder",
            "CHECKERS", "register", "ACCEPT", "REJECT", "ESCALATE",
            "extract", "extract_report", "from_openai",
            "to_json", "to_sarif", "certify", "verify_certificate", "mention_coverage"]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

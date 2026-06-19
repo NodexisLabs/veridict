@@ -110,7 +110,7 @@ def handle(msg):
         return _result(mid, {
             "protocolVersion": params.get("protocolVersion", PROTOCOL),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "veridict", "version": "0.2.0"},
+            "serverInfo": {"name": "veridict", "version": "0.3.0"},
         })
     if method in ("notifications/initialized", "initialized"):
         return None
