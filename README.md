@@ -100,10 +100,12 @@ confirm_chain([
 | `push` | nothing unpushed vs the upstream |
 | `clean` | working tree has no uncommitted changes |
 | `tests` / `cmd` | re-runs `cmd`, checks exit 0 (doesn't trust the reported result) |
-| `file` | a path exists (optionally `contains` a string) |
-| `http` | a URL returns the expected `status` |
+| `file` | a path exists (optionally `contains` a string, `sha256` exact content, `since` freshness) |
+| `http` | a URL returns `status` (or any `<400` if unset); supports `method`/`headers`/`json` + `json_path` |
 | `port` | a `host:port` is open (service up) |
 | `pr` | a GitHub PR is in `state` (via `gh`) |
+| `no_match` | a regex is **absent** from source files (e.g. "no hardcoded keys") |
+| `commit_trailer` | the latest commit (or a `sha`) message matches a regex (e.g. a Co-Authored-By trailer) |
 
 Add your own — a checker is `(step, repo) -> (ok, evidence)`:
 ```python
